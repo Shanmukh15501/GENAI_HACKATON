@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
@@ -15,6 +14,10 @@ from services.data_pipeline.vector_db import FaissVectorIndexer
 from langchain_core.runnables import RunnableLambda
 from utils.datamodels import ChatRequest
 from utils.prompts import rag_prompt
+from langchain.retrievers.multi_query import MultiQueryRetriever
+from rerankers import Reranker
+
+
 from dotenv import load_dotenv
 
 
@@ -25,8 +28,14 @@ os.environ['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY')
 
 app = FastAPI()
 security = HTTPBasic()
-llm = ChatOpenAI(temperature=0)
+llm = ChatOpenAI(
+    model="gpt-4o",      # Use GPT-4o model
+    temperature=0.3,     # Adjust temperature: 0 = deterministic, ~0.7 = more creative
+    max_tokens=1024      # Optional: control response length
+)
 vector_store = None
+ranker = Reranker('mixedbread-ai/mxbai-rerank-large-v1', model_type='cross-encoder')
+
 
 
 # Dummy user database
@@ -36,8 +45,8 @@ users_db: Dict[str, Dict[str, str]] = {
     "Sam": {"password": "financepass", "role": "finance"},
     "Peter": {"password": "pete123", "role": "engineering"},
     "Sid": {"password": "sidpass123", "role": "marketing"},
-    "Natasha": {"passwoed": "hrpass123", "role": "hr"},
-    "Shanmukh": {"passwoed": "Shanmukh", "role": "C-Level"}
+    "Natasha": {"password": "hrpass123", "role": "hr"},
+    "Shanmukh": {"password": "Shanmukh", "role": "C-Level"}
     
 }
 
@@ -89,7 +98,7 @@ def load_data_endpoint():
                         docs = MarkdownDocumentLoader(path=file_path,dept=path.split('\\')[-1]).load()
                         documents.extend(docs)
                     elif file.endswith('.csv'):
-                        docs = CSVDocumentLoader(path=file_path,dept=path.split('\\')[-1]).load()
+                        docs = CSVDocumentLoader(path=file_path,dept=path.split('\\')[-1]).load()    
                         documents.extend(docs)
                     else:
                         print(f"Unsupported file type: {file}")
@@ -104,8 +113,7 @@ def load_data_endpoint():
         faiss_store = FaissVectorIndexer(embedding_function=embedding_strategy.model,dim=384)
 
         faiss_store.add_documents(documents)
-    
-    
+        
         vector_store = faiss_store.vector_store
 
         return {"message": f"Loaded {len(documents)} documents into the vector store."}
@@ -125,19 +133,47 @@ def query(request: ChatRequest):
         Returns:
         dict: The response from the RAG chain.
     """
-    docs = vector_store.similarity_search(request.message, k=5)  # more to allow filtering
-    filtered_docs = [doc for doc in docs if doc.metadata.get("dept") == request.role or doc.metadata.get("dept") == "general"  ]
     
-    context_text = format_docs(filtered_docs)
+    if request.role == "C-Level":
+        metadata_filter = {}  # no filter
+    else:
+        metadata_filter = {
+            "dept": {"$in": [request.role, "general"]}
+        }
+    
+    if metadata_filter:    
+        base_retriever = vector_store.as_retriever(
+            search_kwargs={"filter": metadata_filter}
+        )
+    else:
+        base_retriever = vector_store.as_retriever()
+    
+    # MultiQueryRetriever: improves recall using diverse queries
+    retriever = MultiQueryRetriever.from_llm(
+        retriever=base_retriever,
+        llm=llm
+    )
+    
+    docs = retriever.invoke(request.message)
+    
+    if docs:
+
+        unique_text = list(set([doc.page_content for doc in docs]))
+
+        results = ranker.rank(query=request.message, docs=unique_text)
+        
+    context_text = format_docs(results.top_k(5)) if docs else "No relevant context found."
+    
+
     # Compose the RAG chain
-    rag_chain = (
+    rag_chain     = (
         { "context": RunnableLambda(lambda _: context_text), "question": RunnablePassthrough()}
         | rag_prompt
         | llm
         | StrOutputParser()
     )
-    try:
-        result = rag_chain.invoke(request.message)
-        return {"response": result}
+    
+    try:  
+        return {"response": rag_chain.invoke(request.message),"retrieved_contexts":context_text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

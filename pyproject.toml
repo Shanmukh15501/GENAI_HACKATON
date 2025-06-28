@@ -17,4 +17,6 @@ dependencies = [
     "langchain-huggingface (>=0.3.0,<0.4.0)",
     "openai (>=1.90.0,<2.0.0)",
     "langchain-openai (>=0.3.25,<0.4.0)",
+    "ragas (>=0.2.15,<0.3.0)",
+    "rerankers[api] (>=0.10.0,<0.11.0)",
 ]

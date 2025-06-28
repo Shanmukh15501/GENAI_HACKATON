@@ -19,7 +19,19 @@ if not st.session_state.get("authenticated"):
 st.title("Chatbot Interface")
 st.write(f"Welcome **{st.session_state['username']}**! Your role is **{st.session_state['role']}**.")
 
+if st.button("Log-out"):
+    
+    st.session_state.clear()
+    st.switch_page("stream_app.py")  
 
+@st.cache_data
+def query_backend(query, role):
+    response = requests.post(
+        url="http://localhost:8000/chat",
+        json={"message": query, "role": role}
+    )
+    return response.json()
+    
 if st.session_state.get('load', False):
     # Textbox for query input
     query = st.text_input("Enter your query")
@@ -27,13 +39,9 @@ if st.session_state.get('load', False):
     
     try:
         if query:
-            response = requests.post(
-                url="http://localhost:8000/chat",  # replace with your actual API URL
-                json={"message": query,"role": st.session_state['role']},
-            )
-            response.raise_for_status()
-            data = response.json()
-            st.write(data["response"])
+            data = query_backend(query,st.session_state['role'])
+            if data:
+                st.write(data["response"])
         
     except requests.exceptions.HTTPError:
         st.session_state['authenticated'] = False
