@@ -12,3 +12,11 @@ Visit the challenge page to learn more: [DS RPC-01](https://codebasics.io/challe
  - **general**
  - **hr**
  - **marketing**
+
+
+### --------------------------------------------Steps to be Followed to Run the Current Repo
+- **git clone <repo>**
+- **update the .env**
+- **Install the requirements**
+- **uvicorn main:app --reload --host 0.0.0.0 --port 8000**
+- **streamlit run stream_app.py**

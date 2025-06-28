@@ -1,6 +1,5 @@
 from langchain.prompts import PromptTemplate
 
-from langchain.prompts import PromptTemplate
 rag_prompt = PromptTemplate(
     input_variables=["context", "question"],
     template="""
