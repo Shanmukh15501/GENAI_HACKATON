@@ -14,7 +14,7 @@ Visit the challenge page to learn more: [DS RPC-01](https://codebasics.io/challe
  - **marketing**
 
 
-### --------------------------------------------Steps to be Followed to Run the Current Repo
+### Steps to be Followed to Run the Current Repo
 - **git clone <repo>**
 - **update the .env**
 - **Install the requirements**
